@@ -6,7 +6,6 @@ import {
   Mail, 
   Settings, 
   Camera, 
-  BarChart, 
   Plus, 
   Trash2, 
   Save, 
@@ -18,6 +17,15 @@ import {
   RefreshCcw,
   Network
 } from 'lucide-react';
+import { 
+  BarChart as RechartsBarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer 
+} from 'recharts';
 import { useData } from './context/DataContext';
 import { TOTP, Secret } from 'otpauth';
 
@@ -153,8 +161,19 @@ const AdminPanel = () => {
 
   const handleUpdateCategoryData = (category, index, field, value) => {
     const categoryData = customMetrics[category] || [];
-    const newData = [...categoryData];
-    newData[index] = { ...newData[index], [field]: value };
+    let newData = [...categoryData];
+    
+    if (index === -1) {
+      // If no data exists, create the first entry
+      newData = [{ 
+        year: new Date().getFullYear().toString(), 
+        score: field === 'score' ? value : 0,
+        [field]: value 
+      }];
+    } else {
+      newData[index] = { ...newData[index], [field]: value };
+    }
+    
     updateChartData(category, newData);
   };
 
@@ -238,7 +257,7 @@ const AdminPanel = () => {
       </div>
 
       {/* Main Content Area */}
-      <div style={{ flex: 1, padding: '2.5rem', overflowY: 'auto' }}>
+      <div style={{ flex: 1, height: '100vh', padding: '2.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         <header style={{ marginBottom: '2.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h1 style={{ fontSize: '1.875rem', fontWeight: 800 }}>
@@ -284,63 +303,89 @@ const AdminPanel = () => {
         )}
 
         {activeTab === 'kinerja' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            <section className="glass-card">
-              <h3 className="section-title"><span></span> Survey Budaya Kerja</h3>
-              <div style={{ flex: 1, minHeight: '250px', width: '100%' }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={customMetrics['Budker'] || []}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--glass-border)" vertical={false} />
-                    <XAxis dataKey="year" stroke="var(--text-muted)" fontSize={10} />
-                    <YAxis stroke="var(--text-muted)" fontSize={10} />
-                    <Tooltip 
-                      contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--glass-border)', borderRadius: '12px' }}
-                      cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
+            {/* Quick Edit Metrics */}
+            <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+              <div className="glass-card" style={{ padding: '1.5rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.75rem', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>NILAI IPP</label>
+                <input type="number" step="0.01" value={metrics.ipp} onChange={(e) => setMetrics({ ...metrics, ipp: parseFloat(e.target.value) || 0 })} style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.75rem', color: 'white', fontSize: '1.25rem', fontWeight: 700 }} />
+              </div>
+              <div className="glass-card" style={{ padding: '1.5rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.75rem', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>NILAI IKM</label>
+                <input type="number" step="0.1" value={metrics.ikm} onChange={(e) => setMetrics({ ...metrics, ikm: parseFloat(e.target.value) || 0 })} style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.75rem', color: 'white', fontSize: '1.25rem', fontWeight: 700 }} />
+              </div>
+              {/* Also show SAKIP & RB if they exist in customMetrics for quick edit */}
+              {['SAKIP', 'RB'].map(cat => {
+                const data = customMetrics[cat] || [];
+                const latest = data.length > 0 ? data[data.length - 1] : { score: 0, year: new Date().getFullYear().toString() };
+                return (
+                  <div key={cat} className="glass-card" style={{ padding: '1.5rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.75rem', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>SKOR {cat} ({latest.year})</label>
+                    <input 
+                      type="number" 
+                      step="0.1"
+                      value={latest.score} 
+                      onChange={(e) => handleUpdateCategoryData(cat, data.length > 0 ? data.length - 1 : -1, 'score', parseFloat(e.target.value) || 0)} 
+                      style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.75rem', color: 'white', fontSize: '1.25rem', fontWeight: 700 }} 
                     />
-                    <Bar dataKey="score" name="Skor" fill="var(--primary)" radius={[4, 4, 0, 0]} barSize={40} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </section>
-            <section className="glass-card">
-              <h3 className="section-title"><span></span> Skor Metrik Utama (Dashboard)</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
-                <div>
-                  <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Nilai IPP</label>
-                  <input type="number" step="0.01" value={metrics.ipp} onChange={(e) => setMetrics({ ...metrics, ipp: parseFloat(e.target.value) || 0 })} style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Nilai IKM</label>
-                  <input type="number" step="0.1" value={metrics.ikm} onChange={(e) => setMetrics({ ...metrics, ikm: parseFloat(e.target.value) || 0 })} style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }} />
-                </div>
-              </div>
+                  </div>
+                );
+              })}
             </section>
 
-            <section className="glass-card">
-              <h3 className="section-title"><span></span> Tambah Kategori Kinerja Baru</h3>
-              <div style={{ display: 'flex', gap: '1rem' }}>
-                <input placeholder="Misal: Budker, SAKIP, RB..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} style={{ flex: 1, background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }} />
-                <button onClick={handleAddCategory} className="attendance-btn" style={{ padding: '0 2rem' }}>Tambah</button>
-              </div>
-            </section>
-
-            {Object.keys(customMetrics).map(category => (
-              <section key={category} className="glass-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                  <h3 className="section-title" style={{ margin: 0 }}><span></span> Data {category}</h3>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button onClick={() => handleAddYear(category)} className="attendance-btn" style={{ padding: '0.5rem 1rem', background: 'var(--bg-accent)' }}>Tambah Tahun</button>
-                    <button onClick={() => deleteCategory(category)} className="refresh-btn" style={{ color: 'var(--accent)' }}><Trash2 size={16} /></button>
-                  </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1.5rem' }}>
+              {/* Chart Section */}
+              <section className="glass-card">
+                <h3 className="section-title"><span></span> Survey Budaya Kerja</h3>
+                <div style={{ flex: 1, minHeight: '250px', width: '100%' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsBarChart data={customMetrics['Budker'] || []}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--glass-border)" vertical={false} />
+                      <XAxis dataKey="year" stroke="var(--text-muted)" fontSize={10} />
+                      <YAxis stroke="var(--text-muted)" fontSize={10} />
+                      <Tooltip 
+                        contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--glass-border)', borderRadius: '12px' }}
+                        cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                      />
+                      <Bar dataKey="score" name="Skor" fill="var(--primary)" radius={[4, 4, 0, 0]} barSize={40} />
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
                 </div>
-                {customMetrics[category].map((data, index) => (
-                  <div key={index} style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-                    <input type="text" value={data.year} onChange={(e) => handleUpdateCategoryData(category, index, 'year', e.target.value)} style={{ width: '100px', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
-                    <input type="number" step="0.1" value={data.score} onChange={(e) => handleUpdateCategoryData(category, index, 'score', parseFloat(e.target.value) || 0)} style={{ flex: 1, background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
-                  </div>
-                ))}
               </section>
-            ))}
+
+              {/* Add Category Section */}
+              <section className="glass-card">
+                <h3 className="section-title"><span></span> Tambah Kategori Baru</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>Tambahkan metrik kinerja tahunan lainnya.</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <input placeholder="Nama Metrik (SAKIP, RB, dll)" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }} />
+                  <button onClick={handleAddCategory} className="attendance-btn" style={{ width: '100%' }}>Tambah Kategori</button>
+                </div>
+              </section>
+            </div>
+
+            {/* Detailed Category Management */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
+              {Object.keys(customMetrics).map(category => (
+                <section key={category} className="glass-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                    <h3 className="section-title" style={{ margin: 0 }}><span></span> Data {category}</h3>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button onClick={() => handleAddYear(category)} className="refresh-btn" style={{ fontSize: '0.75rem', padding: '0.5rem' }}>+ Tahun</button>
+                      <button onClick={() => deleteCategory(category)} className="refresh-btn" style={{ color: 'var(--accent)' }}><Trash2 size={16} /></button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {customMetrics[category].map((data, index) => (
+                      <div key={index} style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                        <input type="text" value={data.year} onChange={(e) => handleUpdateCategoryData(category, index, 'year', e.target.value)} style={{ width: '80px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', padding: '0.6rem', borderRadius: '0.5rem', color: 'white', textAlign: 'center' }} />
+                        <input type="number" step="0.1" value={data.score} onChange={(e) => handleUpdateCategoryData(category, index, 'score', parseFloat(e.target.value) || 0)} style={{ flex: 1, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', padding: '0.6rem', borderRadius: '0.5rem', color: 'white' }} />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
           </div>
         )}
 
