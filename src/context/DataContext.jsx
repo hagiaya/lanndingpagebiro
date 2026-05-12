@@ -1,104 +1,276 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
 
 const DataContext = createContext();
 
 export const DataProvider = ({ children }) => {
-  // Initialize from localStorage or defaults
-  const [sakipData, setSakipData] = useState(() => {
-    const saved = localStorage.getItem('sakipData');
-    return saved ? JSON.parse(saved) : [
-      { year: '2022', score: 78.5 },
-      { year: '2023', score: 82.3 },
-      { year: '2024', score: 85.1 },
-    ];
-  });
+  // State for all data
+  const [customMetrics, setCustomMetrics] = useState({}); // { SAKIP: [...], RB: [...], Budker: [...] }
+  const [metrics, setMetrics] = useState({ ipp: 0, ikm: 0, hadir: 0, total: 0 });
+  const [officials, setOfficials] = useState([]);
+  const [activities, setActivities] = useState([]);
+  const [mails, setMails] = useState([]);
+  const [photos, setPhotos] = useState([]);
+  const [orgStructure, setOrgStructure] = useState('');
+  const [loading, setLoading] = useState(true);
 
-  const [rbData, setRbData] = useState(() => {
-    const saved = localStorage.getItem('rbData');
-    return saved ? JSON.parse(saved) : [
-      { year: '2022', score: 72.1 },
-      { year: '2023', score: 75.8 },
-      { year: '2024', score: 79.4 },
-    ];
-  });
+  // Fetch all data from Supabase
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      
+      const results = await Promise.allSettled([
+        supabase.from('employees').select('*').order('name'),
+        supabase.from('dashboard_metrics').select('*').order('year'),
+        supabase.from('kpi_stats').select('*'),
+        supabase.from('activities').select('*').order('date', { ascending: false }).limit(5),
+        supabase.from('mails').select('*').order('date_received', { ascending: false }).limit(5),
+        supabase.from('photos').select('*').order('created_at', { ascending: false }).limit(6)
+      ]);
 
-  const [metrics, setMetrics] = useState(() => {
-    const saved = localStorage.getItem('metrics');
-    return saved ? JSON.parse(saved) : { ipp: 4.82, ikm: 88.4, hadir: 42, total: 45 };
-  });
+      // Process employees
+      if (results[0].status === 'fulfilled' && results[0].value.data) {
+        const employees = results[0].value.data;
+        setOfficials(employees);
+        const hadirCount = employees.filter(e => e.status === 'In').length;
+        setMetrics(prev => ({ ...prev, hadir: hadirCount, total: employees.length }));
+      }
 
-  const [officials, setOfficials] = useState(() => {
-    const saved = localStorage.getItem('officials');
-    return saved ? JSON.parse(saved) : [
-      { id: 1, name: 'H. Ahmad Syarif, M.Si', role: 'Kepala Biro', status: 'In', location: 'Kantor', time: '07:30' },
-      { id: 2, name: 'Dra. Siti Aminah', role: 'Kabag Umum', status: 'Out', location: 'Rapat di Kantor Gubernur', time: '09:00', return: '14:00' },
-      { id: 3, name: 'Budi Santoso, S.T', role: 'Kasubag Keuangan', status: 'In', location: 'Kantor', time: '08:15' },
-      { id: 4, name: 'Lia Marlina, S.Kom', role: 'Pranata Komputer', status: 'Out', location: 'Dinas Luar (Jakarta)', time: '10-05-2026', return: '13-05-2026' },
-    ];
-  });
+      // Process dashboard metrics
+      if (results[1].status === 'fulfilled' && results[1].value.data) {
+        const dashboardMetrics = results[1].value.data;
+        const grouped = dashboardMetrics.reduce((acc, m) => {
+          if (!acc[m.category]) acc[m.category] = [];
+          acc[m.category].push(m);
+          return acc;
+        }, {});
+        setCustomMetrics(grouped);
+      } else if (!customMetrics || Object.keys(customMetrics).length === 0) {
+        // Only load mock if we have nothing yet
+        setCustomMetrics({
+          SAKIP: [{ year: '2022', score: 78.5 }, { year: '2023', score: 82.3 }, { year: '2024', score: 85.1 }],
+          RB: [{ year: '2022', score: 72.1 }, { year: '2023', score: 75.8 }, { year: '2024', score: 79.4 }]
+        });
+      }
 
-  const [activities, setActivities] = useState(() => {
-    const saved = localStorage.getItem('activities');
-    return saved ? JSON.parse(saved) : [
-      { id: 1, title: 'Rapat Koordinasi SAKIP', status: 'Ongoing', time: '09:00 - 12:00' },
-      { id: 2, title: 'Workshop Reformasi Birokrasi', status: 'Upcoming', time: 'Besok, 08:30' },
-      { id: 3, title: 'Sosialisasi Budaya BerAKHLAK', status: 'Upcoming', time: '15 Mei 2026' },
-    ];
-  });
+      // Process KPI stats (IPP/IKM)
+      if (results[2].status === 'fulfilled' && results[2].value.data) {
+        const kpiStats = results[2].value.data;
+        const statsObj = kpiStats.reduce((acc, curr) => {
+          acc[curr.key.toLowerCase()] = curr.value;
+          return acc;
+        }, {});
+        setMetrics(prev => ({ ...prev, ...statsObj }));
+        
+        // Handle Org Structure URL (if it's in a different format or as a string value in another table, but we'll use kpi_stats)
+        const orgStat = kpiStats.find(s => s.key === 'ORG_STRUCTURE');
+        if (orgStat) setOrgStructure(orgStat.value_text || orgStat.value); // Assuming value_text or value
+      }
 
-  const [mails, setMails] = useState(() => {
-    const saved = localStorage.getItem('mails');
-    return saved ? JSON.parse(saved) : [
-      { id: 1, subject: 'Undangan Rapat Evaluasi Kinerja', from: 'Sekretariat Daerah', date: '11 Mei 2026' },
-      { id: 2, subject: 'Permohonan Data Kepegawaian', from: 'BKD', date: '10 Mei 2026' },
-      { id: 3, subject: 'Surat Edaran Libur Nasional', from: 'Kemenpan RB', date: '09 Mei 2026' },
-    ];
-  });
+      if (results[3].status === 'fulfilled' && results[3].value.data) setActivities(results[3].value.data);
+      if (results[4].status === 'fulfilled' && results[4].value.data) setMails(results[4].value.data);
+      if (results[5].status === 'fulfilled' && results[5].value.data) setPhotos(results[5].value.data);
 
-  const [photos, setPhotos] = useState(() => {
-    const saved = localStorage.getItem('photos');
-    return saved ? JSON.parse(saved) : [
-      { id: 1, url: '/images/activity1.png', title: 'Rapat Strategi Pembangunan 2024' },
-      { id: 2, url: '/images/activity2.png', title: 'Pelayanan Publik Prima' },
-      { id: 3, url: '/images/activity3.png', title: 'Seminar Nasional Reformasi' },
-    ];
-  });
+    } catch (error) {
+      console.error('Error fetching data from Supabase:', error);
+      loadMockData();
+    } finally {
+      setLoading(false);
+    }
+  }, [customMetrics]);
 
-  const [berakhlakData, setBerakhlakData] = useState(() => {
-    const saved = localStorage.getItem('berakhlakData');
-    return saved ? JSON.parse(saved) : [
-      { year: '2022', score: 88.2 },
-      { year: '2023', score: 91.5 },
-      { year: '2024', score: 94.8 },
-    ];
-  });
+  const loadMockData = () => {
+    setCustomMetrics({
+      SAKIP: [{ year: '2022', score: 78.5 }, { year: '2023', score: 82.3 }, { year: '2024', score: 85.1 }],
+      RB: [{ year: '2022', score: 72.1 }, { year: '2023', score: 75.8 }, { year: '2024', score: 79.4 }],
+      Budker: [{ year: '2024', score: 88.2 }, { year: '2025', score: 91.5 }, { year: '2026', score: 94.8 }]
+    });
+    setOrgStructure('https://images.unsplash.com/photo-1454165833767-131435bb4696?q=80&w=2070&auto=format&fit=crop');
+    // ... other mocks
+  };
 
-  // Save to localStorage on change
   useEffect(() => {
-    localStorage.setItem('sakipData', JSON.stringify(sakipData));
-    localStorage.setItem('rbData', JSON.stringify(rbData));
-    localStorage.setItem('metrics', JSON.stringify(metrics));
-    localStorage.setItem('officials', JSON.stringify(officials));
-    localStorage.setItem('activities', JSON.stringify(activities));
-    localStorage.setItem('mails', JSON.stringify(mails));
-    localStorage.setItem('photos', JSON.stringify(photos));
-    localStorage.setItem('berakhlakData', JSON.stringify(berakhlakData));
-  }, [sakipData, rbData, metrics, officials, activities, mails, photos, berakhlakData]);
+    fetchData();
+    const interval = setInterval(fetchData, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  const updateAttendance = async (employeeId, status, location, photoUrl) => {
+    try {
+      await supabase.from('employees').update({ status, last_location: location, last_seen: new Date().toISOString() }).eq('id', employeeId);
+      await supabase.from('attendance').insert({ 
+        employee_id: employeeId, 
+        type: status === 'In' ? 'Check-In' : 'Check-Out', 
+        location,
+        photo_url: photoUrl // Storing the base64 or URL
+      });
+      setOfficials(prev => prev.map(emp => emp.id === employeeId ? { ...emp, status, last_location: location } : emp));
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const updateMetrics = async (newMetrics) => {
+    try {
+      const updates = Object.entries(newMetrics).map(([key, value]) => ({ key: key.toUpperCase(), value: parseFloat(value) }));
+      await supabase.from('kpi_stats').upsert(updates);
+      setMetrics(newMetrics);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const updateChartData = async (category, newData) => {
+    try {
+      await supabase.from('dashboard_metrics').upsert(newData.map(d => ({ ...d, category })));
+      setCustomMetrics(prev => ({ ...prev, [category]: newData }));
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const deleteCategory = async (category) => {
+    try {
+      await supabase.from('dashboard_metrics').delete().eq('category', category);
+      setCustomMetrics(prev => {
+        const next = { ...prev };
+        delete next[category];
+        return next;
+      });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const addEmployee = async (employee) => {
+    try {
+      const { data, error } = await supabase.from('employees').insert(employee).select();
+      if (error) throw error;
+      setOfficials(prev => [...prev, data[0]]);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const deleteEmployee = async (id) => {
+    try {
+      await supabase.from('employees').delete().eq('id', id);
+      setOfficials(prev => prev.filter(e => e.id !== id));
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const addActivity = async (activity) => {
+    try {
+      const { data, error } = await supabase.from('activities').insert(activity).select();
+      if (error) throw error;
+      setActivities(prev => [data[0], ...prev]);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const deleteActivity = async (id) => {
+    try {
+      await supabase.from('activities').delete().eq('id', id);
+      setActivities(prev => prev.filter(a => a.id !== id));
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const addMail = async (mail) => {
+    try {
+      const { data, error } = await supabase.from('mails').insert(mail).select();
+      if (error) throw error;
+      setMails(prev => [data[0], ...prev]);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const deleteMail = async (id) => {
+    try {
+      await supabase.from('mails').delete().eq('id', id);
+      setMails(prev => prev.filter(m => m.id !== id));
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const addPhoto = async (photo) => {
+    try {
+      const { data, error } = await supabase.from('photos').insert(photo).select();
+      if (error) throw error;
+      setPhotos(prev => [data[0], ...prev]);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const deletePhoto = async (id) => {
+    try {
+      await supabase.from('photos').delete().eq('id', id);
+      setPhotos(prev => prev.filter(p => p.id !== id));
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const updateOrgStructure = async (url) => {
+    try {
+      await supabase.from('kpi_stats').upsert({ key: 'ORG_STRUCTURE', value_text: url });
+      setOrgStructure(url);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
 
   return (
     <DataContext.Provider value={{
-      sakipData, setSakipData,
-      rbData, setRbData,
+      customMetrics, setCustomMetrics,
       metrics, setMetrics,
       officials, setOfficials,
       activities, setActivities,
       mails, setMails,
       photos, setPhotos,
-      berakhlakData, setBerakhlakData
+      orgStructure, setOrgStructure,
+      loading,
+      fetchData,
+      updateAttendance,
+      updateMetrics,
+      updateChartData,
+      deleteCategory,
+      addEmployee,
+      deleteEmployee,
+      addActivity,
+      deleteActivity,
+      addMail,
+      deleteMail,
+      addPhoto,
+      deletePhoto,
+      updateOrgStructure
     }}>
       {children}
     </DataContext.Provider>
   );
 };
 
+// Final DataContext Export - Forced Reload v2
 export const useData = () => useContext(DataContext);
+
+

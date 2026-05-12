@@ -13,43 +13,167 @@ import {
   LogOut,
   ChevronRight,
   TrendingUp,
-  Award
+  Award,
+  ShieldCheck,
+  RefreshCcw,
+  Network
 } from 'lucide-react';
 import { useData } from './context/DataContext';
+import { TOTP, Secret } from 'otpauth';
 
 const AdminPanel = () => {
   const { 
-    sakipData, setSakipData,
-    rbData, setRbData,
+    customMetrics,
     metrics, setMetrics,
     officials, setOfficials,
-    activities, setActivities,
-    mails, setMails,
-    photos, setPhotos,
-    berakhlakData, setBerakhlakData
+    activities,
+    mails,
+    photos,
+    updateMetrics,
+    updateChartData,
+    deleteCategory,
+    addEmployee,
+    deleteEmployee,
+    addActivity,
+    deleteActivity,
+    addMail,
+    deleteMail,
+    addPhoto,
+    deletePhoto,
+    orgStructure,
+    updateOrgStructure
   } = useData();
 
   const [activeTab, setActiveTab] = useState('overview');
+  const [saving, setSaving] = useState(false);
+  
+  // New Item States
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newEmployee, setNewEmployee] = useState({ name: '', role: '', status: 'Out', last_location: '-' });
+  const [newActivity, setNewActivity] = useState({ title: '', date: new Date().toISOString().split('T')[0], time: '08:00' });
+  const [newMail, setNewMail] = useState({ subject: '', from: '', date_received: new Date().toISOString().split('T')[0] });
+  const [newPhoto, setNewPhoto] = useState({ url: '', title: '' });
+  const [tempOrgUrl, setTempOrgUrl] = useState(orgStructure || '');
 
-  const updateMetric = (key, value) => {
-    setMetrics(prev => ({ ...prev, [key]: value }));
+  const handleAddEmployee = async () => {
+    if (!newEmployee.name) return;
+    setSaving(true);
+    const res = await addEmployee(newEmployee);
+    setSaving(false);
+    if (res.success) {
+      setNewEmployee({ name: '', role: '', status: 'Out', last_location: '-' });
+      alert('Pegawai berhasil ditambahkan!');
+    } else {
+      alert('Gagal menambah pegawai: ' + (res.error?.message || 'Unknown error'));
+    }
   };
 
-  const deleteOfficial = (id) => {
-    setOfficials(prev => prev.filter(o => o.id !== id));
-  };
-
-  const addOfficial = () => {
-    const newOfficial = {
-      id: Date.now(),
-      name: 'Nama Pejabat Baru',
-      role: 'Jabatan',
-      status: 'In',
-      location: 'Kantor',
-      time: '08:00'
+  const handleAddActivity = async () => {
+    if (!newActivity.title) return;
+    setSaving(true);
+    
+    // Check if we should combine date and time into one 'date' field
+    // or if the schema only accepts 'date'. 
+    // We'll try to send a combined string to the 'date' column.
+    const activityToSave = {
+      title: newActivity.title,
+      date: `${newActivity.date} ${newActivity.time}`,
+      status: 'Upcoming' // Default status if column exists
     };
-    setOfficials(prev => [...prev, newOfficial]);
+    
+    const res = await addActivity(activityToSave);
+    setSaving(false);
+    if (res.success) {
+      setNewActivity({ title: '', date: new Date().toISOString().split('T')[0], time: '08:00' });
+      alert('Agenda berhasil ditambahkan!');
+    } else {
+      // If it still fails because of the combined date, try sending only the date part
+      console.error('Failed with combined date, trying date only:', res.error);
+      setSaving(true);
+      const resRetry = await addActivity({
+        title: newActivity.title,
+        date: newActivity.date,
+        status: 'Upcoming'
+      });
+      setSaving(false);
+      if (resRetry.success) {
+        setNewActivity({ title: '', date: new Date().toISOString().split('T')[0], time: '08:00' });
+        alert('Agenda berhasil ditambahkan (tanpa info jam)!');
+      } else {
+        alert('Gagal menambah agenda: ' + (resRetry.error?.message || 'Unknown error'));
+      }
+    }
   };
+
+  const handleAddMail = async () => {
+    if (!newMail.subject) return;
+    setSaving(true);
+    const res = await addMail(newMail);
+    setSaving(false);
+    if (res.success) {
+      setNewMail({ subject: '', from: '', date_received: new Date().toISOString().split('T')[0] });
+      alert('Surat berhasil ditambahkan!');
+    } else {
+      alert('Gagal menambah surat: ' + (res.error?.message || 'Unknown error'));
+    }
+  };
+
+  const handleAddPhoto = async () => {
+    if (!newPhoto.url) return;
+    setSaving(true);
+    const res = await addPhoto(newPhoto);
+    setSaving(false);
+    if (res.success) {
+      setNewPhoto({ url: '', title: '' });
+      alert('Dokumentasi berhasil ditambahkan!');
+    } else {
+      alert('Gagal menambah dokumentasi: ' + (res.error?.message || 'Unknown error'));
+    }
+  };
+
+  const handleUpdateOrg = async () => {
+    setSaving(true);
+    await updateOrgStructure(tempOrgUrl);
+    setSaving(false);
+    alert('Struktur Organisasi berhasil diperbarui!');
+  };
+  const handleSaveMetrics = async () => {
+    setSaving(true);
+    await updateMetrics(metrics);
+    setSaving(false);
+    alert('Data berhasil disimpan!');
+  };
+
+  const handleAddCategory = async () => {
+    if (!newCategoryName) return;
+    const initialData = [{ year: new Date().getFullYear().toString(), score: 0 }];
+    await updateChartData(newCategoryName, initialData);
+    setNewCategoryName('');
+  };
+
+  const handleUpdateCategoryData = (category, index, field, value) => {
+    const categoryData = customMetrics[category] || [];
+    const newData = [...categoryData];
+    newData[index] = { ...newData[index], [field]: value };
+    updateChartData(category, newData);
+  };
+
+  const handleAddYear = (category) => {
+    const categoryData = customMetrics[category] || [];
+    const lastYear = categoryData.length > 0 
+      ? parseInt(categoryData[categoryData.length - 1].year) 
+      : new Date().getFullYear();
+    const newData = [...categoryData, { year: (lastYear + 1).toString(), score: 0 }];
+    updateChartData(category, newData);
+  };
+
+  const generateSecret = (officialId) => {
+    const secret = new Secret().base32;
+    setOfficials(prev => prev.map(o => o.id === officialId ? { ...o, totp_secret: secret } : o));
+    alert(`Secret baru dibuat: ${secret}. Silakan masukkan ke Google Authenticator.`);
+  };
+
+
 
   const SidebarItem = ({ id, icon: Icon, label }) => (
     <div 
@@ -89,6 +213,7 @@ const AdminPanel = () => {
         <SidebarItem id="kegiatan" icon={Calendar} label="Agenda Kegiatan" />
         <SidebarItem id="surat" icon={Mail} label="Surat Masuk" />
         <SidebarItem id="dokumentasi" icon={Camera} label="Dokumentasi" />
+        <SidebarItem id="struktur" icon={Network} label="Struktur Organisasi" />
 
         <div style={{ marginTop: 'auto', borderTop: '1px solid var(--glass-border)', paddingTop: '1.5rem' }}>
           <button 
@@ -123,165 +248,293 @@ const AdminPanel = () => {
               {activeTab === 'kegiatan' && 'Manajemen Agenda'}
               {activeTab === 'surat' && 'Input Surat Masuk'}
               {activeTab === 'dokumentasi' && 'Update Dokumentasi'}
+              {activeTab === 'struktur' && 'Struktur Organisasi'}
             </h1>
             <p style={{ color: 'var(--text-muted)' }}>Kelola data yang tampil di layar publik</p>
           </div>
-          <div className="glass-card" style={{ padding: '0.75rem 1.5rem', borderRadius: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>A</div>
-            <span>Admin Surat</span>
+          <div style={{ display: 'flex', gap: '1rem' }}>
+            {['kinerja', 'pejabat'].includes(activeTab) && (
+              <button 
+                onClick={handleSaveMetrics} 
+                disabled={saving}
+                className="attendance-btn" 
+                style={{ padding: '0.75rem 1.5rem', background: 'var(--secondary)' }}
+              >
+                <Save size={20} /> {saving ? 'Menyimpan...' : 'Simpan Semua'}
+              </button>
+            )}
+            <div className="glass-card" style={{ padding: '0.75rem 1.5rem', borderRadius: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>A</div>
+              <span>Super Admin</span>
+            </div>
           </div>
         </header>
 
         {activeTab === 'overview' && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
             <div className="glass-card">
-              <h3>Quick Stats</h3>
-              <p>Total Surat: {mails.length}</p>
-              <p>Kegiatan Aktif: {activities.length}</p>
-              <p>Pejabat Terdaftar: {officials.length}</p>
+              <h3>Statistik Sistem</h3>
+              <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total Pejabat</span> <strong>{officials.length}</strong></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Agenda Aktif</span> <strong>{activities.length}</strong></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Surat Masuk</span> <strong>{mails.length}</strong></div>
+              </div>
             </div>
-            {/* More stats... */}
           </div>
         )}
 
         {activeTab === 'kinerja' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
             <section className="glass-card">
-              <h3 className="section-title"><span></span> Skor Metrik Utama</h3>
+              <h3 className="section-title"><span></span> Survey Budaya Kerja</h3>
+              <div style={{ flex: 1, minHeight: '250px', width: '100%' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={customMetrics['Budker'] || []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--glass-border)" vertical={false} />
+                    <XAxis dataKey="year" stroke="var(--text-muted)" fontSize={10} />
+                    <YAxis stroke="var(--text-muted)" fontSize={10} />
+                    <Tooltip 
+                      contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--glass-border)', borderRadius: '12px' }}
+                      cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                    />
+                    <Bar dataKey="score" name="Skor" fill="var(--primary)" radius={[4, 4, 0, 0]} barSize={40} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+            <section className="glass-card">
+              <h3 className="section-title"><span></span> Skor Metrik Utama (Dashboard)</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
                 <div>
                   <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Nilai IPP</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    value={metrics.ipp} 
-                    onChange={(e) => updateMetric('ipp', parseFloat(e.target.value))}
-                    style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }}
-                  />
+                  <input type="number" step="0.01" value={metrics.ipp} onChange={(e) => setMetrics({ ...metrics, ipp: parseFloat(e.target.value) || 0 })} style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }} />
                 </div>
                 <div>
                   <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Nilai IKM</label>
-                  <input 
-                    type="number" 
-                    step="0.1"
-                    value={metrics.ikm} 
-                    onChange={(e) => updateMetric('ikm', parseFloat(e.target.value))}
-                    style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }}
-                  />
+                  <input type="number" step="0.1" value={metrics.ikm} onChange={(e) => setMetrics({ ...metrics, ikm: parseFloat(e.target.value) || 0 })} style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }} />
                 </div>
               </div>
             </section>
 
             <section className="glass-card">
-              <h3 className="section-title"><span></span> Data SAKIP (3 Tahun)</h3>
-              {sakipData.map((data, index) => (
-                <div key={index} style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', alignItems: 'center' }}>
-                  <span style={{ width: '60px' }}>{data.year}</span>
-                  <input 
-                    type="number" 
-                    value={data.score} 
-                    onChange={(e) => {
-                      const newData = [...sakipData];
-                      newData[index].score = parseFloat(e.target.value);
-                      setSakipData(newData);
-                    }}
-                    style={{ flex: 1, background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }}
-                  />
-                </div>
-              ))}
+              <h3 className="section-title"><span></span> Tambah Kategori Kinerja Baru</h3>
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                <input placeholder="Misal: Budker, SAKIP, RB..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} style={{ flex: 1, background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }} />
+                <button onClick={handleAddCategory} className="attendance-btn" style={{ padding: '0 2rem' }}>Tambah</button>
+              </div>
             </section>
+
+            {Object.keys(customMetrics).map(category => (
+              <section key={category} className="glass-card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                  <h3 className="section-title" style={{ margin: 0 }}><span></span> Data {category}</h3>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button onClick={() => handleAddYear(category)} className="attendance-btn" style={{ padding: '0.5rem 1rem', background: 'var(--bg-accent)' }}>Tambah Tahun</button>
+                    <button onClick={() => deleteCategory(category)} className="refresh-btn" style={{ color: 'var(--accent)' }}><Trash2 size={16} /></button>
+                  </div>
+                </div>
+                {customMetrics[category].map((data, index) => (
+                  <div key={index} style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+                    <input type="text" value={data.year} onChange={(e) => handleUpdateCategoryData(category, index, 'year', e.target.value)} style={{ width: '100px', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                    <input type="number" step="0.1" value={data.score} onChange={(e) => handleUpdateCategoryData(category, index, 'score', parseFloat(e.target.value) || 0)} style={{ flex: 1, background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                  </div>
+                ))}
+              </section>
+            ))}
           </div>
         )}
 
         {activeTab === 'pejabat' && (
-          <div className="glass-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <h3 className="section-title" style={{ margin: 0 }}><span></span> Daftar Pejabat</h3>
-              <button onClick={addOfficial} className="attendance-btn" style={{ padding: '0.5rem 1rem' }}>
-                <Plus size={18} /> Tambah Pejabat
-              </button>
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--glass-border)' }}>
-                    <th style={{ padding: '1rem', color: 'var(--text-muted)' }}>Nama</th>
-                    <th style={{ padding: '1rem', color: 'var(--text-muted)' }}>Status</th>
-                    <th style={{ padding: '1rem', color: 'var(--text-muted)' }}>Keterangan</th>
-                    <th style={{ padding: '1rem', color: 'var(--text-muted)' }}>Aksi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {officials.map(person => (
-                    <tr key={person.id} style={{ borderBottom: '1px solid var(--glass-border)' }}>
-                      <td style={{ padding: '1rem' }}>
-                        <input 
-                          value={person.name} 
-                          onChange={(e) => {
-                            setOfficials(officials.map(o => o.id === person.id ? { ...o, name: e.target.value } : o));
-                          }}
-                          style={{ background: 'none', border: 'none', color: 'white', fontWeight: 600, width: '100%' }}
-                        />
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{person.role}</div>
-                      </td>
-                      <td style={{ padding: '1rem' }}>
-                        <select 
-                          value={person.status} 
-                          onChange={(e) => {
-                            setOfficials(officials.map(o => o.id === person.id ? { ...o, status: e.target.value } : o));
-                          }}
-                          style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', color: 'white', padding: '0.25rem', borderRadius: '0.5rem' }}
-                        >
-                          <option value="In">Hadir (In)</option>
-                          <option value="Out">Keluar (Out)</option>
-                        </select>
-                      </td>
-                      <td style={{ padding: '1rem' }}>
-                        <input 
-                          value={person.location} 
-                          onChange={(e) => {
-                            setOfficials(officials.map(o => o.id === person.id ? { ...o, location: e.target.value } : o));
-                          }}
-                          placeholder="Lokasi..."
-                          style={{ background: 'var(--bg-accent)', border: 'none', color: 'white', padding: '0.5rem', borderRadius: '0.5rem', width: '100%' }}
-                        />
-                      </td>
-                      <td style={{ padding: '1rem' }}>
-                        <button onClick={() => deleteOfficial(person.id)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer' }}>
-                          <Trash2 size={18} />
-                        </button>
-                      </td>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <section className="glass-card">
+              <h3 className="section-title"><span></span> Tambah Pejabat</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '1rem', alignItems: 'end' }}>
+                <input placeholder="Nama Lengkap" value={newEmployee.name} onChange={(e) => setNewEmployee({ ...newEmployee, name: e.target.value })} style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                <input placeholder="Jabatan" value={newEmployee.role} onChange={(e) => setNewEmployee({ ...newEmployee, role: e.target.value })} style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                <button onClick={handleAddEmployee} disabled={saving} className="attendance-btn">
+                  {saving ? '...' : 'Tambah'}
+                </button>
+              </div>
+            </section>
+            <section className="glass-card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+                    <tr style={{ textAlign: 'left', color: 'var(--text-muted)', background: '#1e293b' }}>
+                      <th style={{ padding: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)' }}>Pejabat</th>
+                      <th style={{ padding: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)' }}>Secret</th>
+                      <th style={{ padding: '1rem' }}>Aksi</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {officials.map(o => (
+                      <tr key={o.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
+                          <strong>{o.name}</strong><br/><small>{o.role}</small>
+                        </td>
+                        <td style={{ padding: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
+                          <code>{o.totp_secret || '-'}</code>
+                        </td>
+                        <td style={{ padding: '1rem' }}>
+                          <button onClick={() => generateSecret(o.id)} className="refresh-btn" style={{ display: 'inline-flex', marginRight: '0.5rem' }}><RefreshCcw size={14} /></button>
+                          <button onClick={() => deleteEmployee(o.id)} className="refresh-btn" style={{ display: 'inline-flex', color: 'var(--accent)' }}><Trash2 size={14} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'kegiatan' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <section className="glass-card">
+              <h3 className="section-title"><span></span> Tambah Agenda</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '1rem', alignItems: 'end' }}>
+                <input placeholder="Nama Kegiatan" value={newActivity.title} onChange={(e) => setNewActivity({ ...newActivity, title: e.target.value })} style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                <input type="date" value={newActivity.date} onChange={(e) => setNewActivity({ ...newActivity, date: e.target.value })} style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                <input type="time" value={newActivity.time} onChange={(e) => setNewActivity({ ...newActivity, time: e.target.value })} style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                <button onClick={handleAddActivity} disabled={saving} className="attendance-btn">
+                  {saving ? '...' : 'Tambah'}
+                </button>
+              </div>
+            </section>
+            <section className="glass-card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+                    <tr style={{ textAlign: 'left', color: 'var(--text-muted)', background: '#1e293b' }}>
+                      <th style={{ padding: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)' }}>Nama Kegiatan</th>
+                      <th style={{ padding: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)' }}>Waktu</th>
+                      <th style={{ padding: '1rem' }}>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activities.map(a => (
+                      <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)' }}><strong>{a.title}</strong></td>
+                        <td style={{ padding: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
+                          <small>
+                            {a.date ? new Date(a.date).toLocaleDateString('id-ID') : '-'}
+                            {a.time ? ` • ${a.time}` : (a.date && a.date.includes(' ') ? ` • ${a.date.split(' ')[1]}` : '')}
+                          </small>
+                        </td>
+                        <td style={{ padding: '1rem' }}>
+                          <button onClick={() => deleteActivity(a.id)} className="refresh-btn" style={{ color: 'var(--accent)' }}><Trash2 size={14} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           </div>
         )}
 
         {activeTab === 'surat' && (
-          <div className="glass-card">
-            <h3 className="section-title"><span></span> Input Surat Masuk Baru</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <input 
-                placeholder="Subjek Surat..." 
-                className="glass-card" 
-                style={{ background: 'var(--bg-accent)', width: '100%' }}
-              />
-              <input 
-                placeholder="Asal Surat..." 
-                className="glass-card" 
-                style={{ background: 'var(--bg-accent)', width: '100%' }}
-              />
-              <button className="attendance-btn" style={{ justifyContent: 'center' }}>
-                <Plus size={20} /> Simpan Surat
-              </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <section className="glass-card">
+              <h3 className="section-title"><span></span> Input Surat Masuk</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '1rem', alignItems: 'end' }}>
+                <input placeholder="Perihal Surat" value={newMail.subject} onChange={(e) => setNewMail({ ...newMail, subject: e.target.value })} style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                <input placeholder="Dari" value={newMail.from} onChange={(e) => setNewMail({ ...newMail, from: e.target.value })} style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                <input type="date" value={newMail.date_received} onChange={(e) => setNewMail({ ...newMail, date_received: e.target.value })} style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                <button onClick={handleAddMail} disabled={saving} className="attendance-btn">
+                  {saving ? '...' : 'Tambah'}
+                </button>
+              </div>
+            </section>
+            <section className="glass-card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+                    <tr style={{ textAlign: 'left', color: 'var(--text-muted)', background: '#1e293b' }}>
+                      <th style={{ padding: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)' }}>Perihal</th>
+                      <th style={{ padding: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)' }}>Dari / Tanggal</th>
+                      <th style={{ padding: '1rem' }}>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mails.map(m => (
+                      <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)' }}><strong>{m.subject}</strong></td>
+                        <td style={{ padding: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)' }}><small>{m.from} • {m.date_received}</small></td>
+                        <td style={{ padding: '1rem' }}>
+                          <button onClick={() => deleteMail(m.id)} className="refresh-btn" style={{ color: 'var(--accent)' }}><Trash2 size={14} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'dokumentasi' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <section className="glass-card">
+              <h3 className="section-title"><span></span> Tambah Foto Kegiatan</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '1rem', alignItems: 'end' }}>
+                <input placeholder="URL Foto" value={newPhoto.url} onChange={(e) => setNewPhoto({ ...newPhoto, url: e.target.value })} style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                <input placeholder="Judul/Keterangan" value={newPhoto.title} onChange={(e) => setNewPhoto({ ...newPhoto, title: e.target.value })} style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                <button onClick={handleAddPhoto} disabled={saving} className="attendance-btn">
+                  {saving ? '...' : 'Tambah'}
+                </button>
+              </div>
+            </section>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+              {photos.map(p => (
+                <div key={p.id} className="glass-card" style={{ padding: '0.5rem', position: 'relative' }}>
+                  <img src={p.url} alt={p.title} style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '0.5rem' }} />
+                  <p style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}>{p.title}</p>
+                  <button onClick={() => deletePhoto(p.id)} style={{ position: 'absolute', top: '0.75rem', right: '0.75rem', background: 'rgba(244, 63, 94, 0.8)', border: 'none', color: 'white', padding: '0.25rem', borderRadius: '0.25rem', cursor: 'pointer' }}><Trash2 size={12} /></button>
+                </div>
+              ))}
             </div>
           </div>
         )}
+
+        {activeTab === 'struktur' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <section className="glass-card">
+              <h3 className="section-title"><span></span> Update Gambar Struktur Organisasi</h3>
+              <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', fontSize: '0.875rem' }}>Masukkan URL gambar struktur organisasi yang akan ditampilkan di dashboard publik.</p>
+              <div style={{ display: 'flex', gap: '1rem', flexDirection: 'column' }}>
+                <input 
+                  placeholder="https://example.com/struktur.jpg" 
+                  value={tempOrgUrl} 
+                  onChange={(e) => setTempOrgUrl(e.target.value)} 
+                  style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }} 
+                />
+                <button 
+                  onClick={handleUpdateOrg} 
+                  disabled={saving}
+                  className="attendance-btn" 
+                  style={{ alignSelf: 'flex-start', padding: '0.75rem 2rem' }}
+                >
+                  <Save size={20} /> {saving ? 'Menyimpan...' : 'Perbarui Struktur'}
+                </button>
+              </div>
+            </section>
+            
+            {orgStructure && (
+              <section className="glass-card">
+                <h3 className="section-title"><span></span> Preview Saat Ini</h3>
+                <div style={{ borderRadius: '1rem', overflow: 'hidden', border: '1px solid var(--glass-border)' }}>
+                  <img src={orgStructure} alt="Struktur Organisasi" style={{ width: '100%', height: 'auto', display: 'block' }} />
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+
       </div>
     </div>
   );
 };
 
 export default AdminPanel;
+
