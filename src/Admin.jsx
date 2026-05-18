@@ -214,13 +214,31 @@ const AdminPanel = () => {
 
   const handleAddCategory = async () => {
     if (!newCategoryName) return;
-    const initialData = [{ year: new Date().getFullYear().toString(), score: '' }];
+    
+    // Initialize score as 0 for database compatibility (avoiding numeric type mismatches)
+    const initialData = [{ year: new Date().getFullYear().toString(), score: 0 }];
+    
+    // Optimistically add to local state
     setLocalCustomMetrics(prev => ({
       ...prev,
       [newCategoryName]: initialData
     }));
-    await updateChartData(newCategoryName, initialData);
-    setNewCategoryName('');
+    
+    setSaving(true);
+    const res = await updateChartData(newCategoryName, initialData);
+    setSaving(false);
+    
+    if (res.success) {
+      setNewCategoryName('');
+    } else {
+      alert('Gagal menambahkan kategori baru ke database: ' + (res.error?.message || 'Unknown error'));
+      // Rollback local state
+      setLocalCustomMetrics(prev => {
+        const next = { ...prev };
+        delete next[newCategoryName];
+        return next;
+      });
+    }
   };
 
   const handleUpdateLocalCategoryData = (category, index, field, value) => {
