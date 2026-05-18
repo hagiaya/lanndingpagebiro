@@ -41,6 +41,7 @@ const AdminPanel = () => {
     updateMetrics,
     updateChartData,
     deleteCategory,
+    deleteChartDataRow,
     addEmployee,
     deleteEmployee,
     addActivity,
@@ -252,6 +253,40 @@ const AdminPanel = () => {
     }
   };
 
+  const handleDeleteYear = async (category, index) => {
+    const categoryData = localCustomMetrics[category] || [];
+    const rowToDelete = categoryData[index];
+    
+    // 1. Update local state immediately for snappy response
+    const updatedData = categoryData.filter((_, idx) => idx !== index);
+    setLocalCustomMetrics(prev => ({
+      ...prev,
+      [category]: updatedData
+    }));
+    
+    // 2. If the row has a database ID, delete it from Supabase as well
+    if (rowToDelete && rowToDelete.id) {
+      setSaving(true);
+      const res = await deleteChartDataRow(rowToDelete.id);
+      setSaving(false);
+      
+      if (!res.success) {
+        alert('Gagal menghapus data dari database: ' + (res.error?.message || 'Unknown error'));
+        // Rollback local state
+        setLocalCustomMetrics(prev => ({
+          ...prev,
+          [category]: categoryData
+        }));
+      } else {
+        // Sync context state
+        setCustomMetrics(prev => ({
+          ...prev,
+          [category]: updatedData
+        }));
+      }
+    }
+  };
+
   const handleUpdateLocalCategoryData = (category, index, field, value) => {
     setLocalCustomMetrics(prev => {
       const categoryData = prev[category] || [];
@@ -452,6 +487,7 @@ const AdminPanel = () => {
                         <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-muted)' }}>
                           <th style={{ padding: '0.5rem', fontWeight: 600 }}>Tahun</th>
                           <th style={{ padding: '0.5rem', fontWeight: 600 }}>Skor / Nilai</th>
+                          <th style={{ padding: '0.5rem', width: '40px' }}></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -477,6 +513,16 @@ const AdminPanel = () => {
                                 onFocus={(e) => e.target.style.borderColor = 'var(--glass-border)'}
                                 onBlur={(e) => e.target.style.borderColor = 'transparent'}
                               />
+                            </td>
+                            <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                              <button 
+                                onClick={() => handleDeleteYear(category, index)} 
+                                className="refresh-btn" 
+                                style={{ color: 'var(--accent)', padding: '0.25rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                                title="Hapus Tahun"
+                              >
+                                <Trash2 size={14} />
+                              </button>
                             </td>
                           </tr>
                         ))}

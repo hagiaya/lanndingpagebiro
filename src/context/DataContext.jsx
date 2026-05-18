@@ -258,9 +258,16 @@ export const DataProvider = ({ children }) => {
 
   const updateChartData = async (category, newData) => {
     try {
-      await supabase.from('dashboard_metrics').upsert(newData.map(d => ({ ...d, category })));
-      setCustomMetrics(prev => ({ ...prev, [category]: newData }));
-      return { success: true };
+      const { data, error } = await supabase
+        .from('dashboard_metrics')
+        .upsert(newData.map(d => ({ ...d, category })))
+        .select();
+      
+      if (error) throw error;
+      
+      const returnedData = data || newData;
+      setCustomMetrics(prev => ({ ...prev, [category]: returnedData }));
+      return { success: true, data: returnedData };
     } catch (error) {
       return { success: false, error };
     }
@@ -274,6 +281,16 @@ export const DataProvider = ({ children }) => {
         delete next[category];
         return next;
       });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error };
+    }
+  };
+
+  const deleteChartDataRow = async (id) => {
+    try {
+      const { error } = await supabase.from('dashboard_metrics').delete().eq('id', id);
+      if (error) throw error;
       return { success: true };
     } catch (error) {
       return { success: false, error };
@@ -410,6 +427,7 @@ export const DataProvider = ({ children }) => {
       updateMetrics,
       updateChartData,
       deleteCategory,
+      deleteChartDataRow,
       addEmployee,
       deleteEmployee,
       addActivity,
