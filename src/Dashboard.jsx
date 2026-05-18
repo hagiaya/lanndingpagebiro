@@ -244,8 +244,10 @@ const Dashboard = ({ onOpenAttendance }) => {
             return a.localeCompare(b);
           })
           .map(([cat, data], idx) => {
-            const latest = data.length > 0 ? data[data.length - 1] : { score: 0, year: '-' };
-            const prev = data.length > 1 ? data[data.length - 2] : null;
+            // Sort data by year ascending so that the latest year (highest year number) is always the last element
+            const sortedData = [...(data || [])].sort((a, b) => parseInt(a.year) - parseInt(b.year));
+            const latest = sortedData.length > 0 ? sortedData[sortedData.length - 1] : { score: 0, year: '-' };
+            const prev = sortedData.length > 1 ? sortedData[sortedData.length - 2] : null;
             
             let trend = 0;
             let isUp = true;
