@@ -59,11 +59,16 @@ export const DataProvider = ({ children }) => {
           return acc;
         }, {});
         setCustomMetrics(grouped);
-      } else if (!customMetrics || Object.keys(customMetrics).length === 0) {
-        // Only load mock if we have nothing yet
-        setCustomMetrics({
-          SAKIP: [{ year: '2022', score: 78.5 }, { year: '2023', score: 82.3 }, { year: '2024', score: 85.1 }],
-          RB: [{ year: '2022', score: 72.1 }, { year: '2023', score: 75.8 }, { year: '2024', score: 79.4 }]
+      } else {
+        // Only load mock if we have nothing yet (using functional updates to avoid dependency)
+        setCustomMetrics(prev => {
+          if (!prev || Object.keys(prev).length === 0) {
+            return {
+              SAKIP: [{ year: '2022', score: 78.5 }, { year: '2023', score: 82.3 }, { year: '2024', score: 85.1 }],
+              RB: [{ year: '2022', score: 72.1 }, { year: '2023', score: 75.8 }, { year: '2024', score: 79.4 }]
+            };
+          }
+          return prev;
         });
       }
 
@@ -120,7 +125,7 @@ export const DataProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [customMetrics]);
+  }, []);
 
   const loadMockData = () => {
     setCustomMetrics({

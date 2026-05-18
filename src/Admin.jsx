@@ -62,7 +62,13 @@ const AdminPanel = () => {
 
   useEffect(() => {
     if (customMetrics && Object.keys(customMetrics).length > 0) {
-      setLocalCustomMetrics(JSON.parse(JSON.stringify(customMetrics)));
+      setLocalCustomMetrics(prev => {
+        // Only initialize from context customMetrics if local state is empty/unpopulated
+        if (!prev || Object.keys(prev).length === 0) {
+          return JSON.parse(JSON.stringify(customMetrics));
+        }
+        return prev;
+      });
     }
   }, [customMetrics]);
   
@@ -207,6 +213,9 @@ const AdminPanel = () => {
     setSaving(false);
     if (resMetrics.success && allSuccess) {
       alert('Semua data berhasil disimpan!');
+      if (customMetrics) {
+        setLocalCustomMetrics(JSON.parse(JSON.stringify(customMetrics)));
+      }
     } else {
       alert('Gagal menyimpan data: ' + (errorMessage || 'Unknown error'));
     }
