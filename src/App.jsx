@@ -4,6 +4,7 @@ import Dashboard from './Dashboard';
 import AdminPanel from './Admin';
 import Attendance from './Attendance';
 import { DataProvider } from './context/DataContext';
+import GlobalNotification from './components/GlobalNotification';
 import './index.css';
 
 function App() {
@@ -13,10 +14,11 @@ function App() {
     <DataProvider>
       <Router>
         <div className="relative min-h-screen">
+          <GlobalNotification />
           <Routes>
             <Route path="/" element={<Dashboard onOpenAttendance={() => setShowAttendance(true)} />} />
             <Route path="/admin" element={<AdminPanel />} />
-            <Route path="/attendance" element={<Attendance onBack={() => window.location.href = '/'} />} />
+            <Route path="/attendance" element={<Attendance onBack={() => {}} />} />
           </Routes>
           
           {showAttendance && (

@@ -11,7 +11,10 @@ export const DataProvider = ({ children }) => {
   const [activities, setActivities] = useState([]);
   const [mails, setMails] = useState([]);
   const [photos, setPhotos] = useState([]);
-  const [orgStructure, setOrgStructure] = useState('');
+  const [orgStructure, setOrgStructure] = useState([]);
+  const [attendanceMessage, setAttendanceMessage] = useState('');
+  const [lastProcessedId, setLastProcessedId] = useState(null);
+  const [attendanceHistory, setAttendanceHistory] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Fetch all data from Supabase
@@ -25,15 +28,26 @@ export const DataProvider = ({ children }) => {
         supabase.from('kpi_stats').select('*'),
         supabase.from('activities').select('*').order('date', { ascending: false }).limit(5),
         supabase.from('mails').select('*').order('date_received', { ascending: false }).limit(5),
-        supabase.from('photos').select('*').order('created_at', { ascending: false }).limit(6)
+        supabase.from('photos').select('*').order('created_at', { ascending: false }).limit(6),
+        supabase.from('attendance').select('*').order('timestamp', { ascending: false }).limit(50)
       ]);
 
-      // Process employees
+      // Process employees with daily auto-reset
       if (results[0].status === 'fulfilled' && results[0].value.data) {
         const employees = results[0].value.data;
-        setOfficials(employees);
-        const hadirCount = employees.filter(e => e.status === 'In').length;
-        setMetrics(prev => ({ ...prev, hadir: hadirCount, total: employees.length }));
+        const today = new Date().toDateString();
+        
+        const processedEmployees = employees.map(emp => {
+          const isToday = emp.last_seen && new Date(emp.last_seen).toDateString() === today;
+          return {
+            ...emp,
+            status: isToday ? emp.status : 'Out',
+          };
+        });
+        
+        setOfficials(processedEmployees);
+        const hadirCount = processedEmployees.filter(e => e.status === 'In' || e.status === 'Kantor').length;
+        setMetrics(prev => ({ ...prev, hadir: hadirCount, total: processedEmployees.length }));
       }
 
       // Process dashboard metrics
@@ -62,14 +76,43 @@ export const DataProvider = ({ children }) => {
         }, {});
         setMetrics(prev => ({ ...prev, ...statsObj }));
         
-        // Handle Org Structure URL (if it's in a different format or as a string value in another table, but we'll use kpi_stats)
+        // Handle Org Structure URL or JSON
+        // Handle Org Structure URL or JSON
         const orgStat = kpiStats.find(s => s.key === 'ORG_STRUCTURE');
-        if (orgStat) setOrgStructure(orgStat.value_text || orgStat.value); // Assuming value_text or value
+        const orgData = orgStat?.label || orgStat?.value; // Fallback to value if label is empty
+        if (orgData) {
+          try {
+            const parsed = JSON.parse(orgData);
+            setOrgStructure(Array.isArray(parsed) ? parsed : []);
+          } catch (e) {
+            setOrgStructure(orgData.toString());
+          }
+        } else {
+          setOrgStructure([]);
+        }
       }
 
       if (results[3].status === 'fulfilled' && results[3].value.data) setActivities(results[3].value.data);
       if (results[4].status === 'fulfilled' && results[4].value.data) setMails(results[4].value.data);
       if (results[5].status === 'fulfilled' && results[5].value.data) setPhotos(results[5].value.data);
+      
+      // Manually map employee names to attendance history to avoid Supabase join errors
+      if (results[6].status === 'fulfilled' && results[6].value.data) {
+        let historyData = results[6].value.data;
+        if (results[0].status === 'fulfilled' && results[0].value.data) {
+          const empList = results[0].value.data;
+          historyData = historyData.map(record => {
+            const emp = empList.find(e => e.id === record.employee_id);
+            return {
+              ...record,
+              employees: { name: emp ? emp.name : 'Unknown' }
+            };
+          });
+        }
+        setAttendanceHistory(historyData);
+      } else if (results[6].status === 'rejected') {
+        console.error('Attendance history fetch failed:', results[6].reason);
+      }
 
     } catch (error) {
       console.error('Error fetching data from Supabase:', error);
@@ -88,6 +131,92 @@ export const DataProvider = ({ children }) => {
     setOrgStructure('https://images.unsplash.com/photo-1454165833767-131435bb4696?q=80&w=2070&auto=format&fit=crop');
     // ... other mocks
   };
+
+  // Global Attendance Listener - Polling every 3 seconds
+  useEffect(() => {
+    let isInitial = true;
+    
+    const pollAttendance = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('attendance')
+          .select('id, employee_id, type, timestamp')
+          .order('timestamp', { ascending: false })
+          .limit(1);
+
+        if (!error && data && data.length > 0) {
+          const latest = data[0];
+          
+          // On first run, just set the lastProcessedId to the latest existing record
+          if (isInitial) {
+            setLastProcessedId(latest.id);
+            isInitial = false;
+            return;
+          }
+
+          if (latest.id !== lastProcessedId && latest.type === 'Check-In') {
+            console.log('New attendance record found:', latest);
+            const recordTime = new Date(latest.timestamp).getTime();
+            const now = Date.now();
+            
+            // Only process if it happened in the last 60 seconds
+            if (now - recordTime < 60000) {
+              setLastProcessedId(latest.id);
+              fetchData();
+              
+              const { data: emp } = await supabase.from('employees').select('name').eq('id', latest.employee_id).single();
+              if (emp) {
+                const checkInDate = new Date(latest.created_at);
+                const hour = checkInDate.getHours();
+                const minute = checkInDate.getMinutes();
+                
+                // Threshold 07:30
+                const thresholdHour = 7;
+                const thresholdMinute = 30;
+                const isLate = hour > thresholdHour || (hour === thresholdHour && minute > thresholdMinute);
+                
+                let lateMinutes = 0;
+                let lateText = '';
+                if (isLate) {
+                  lateMinutes = (hour * 60 + minute) - (thresholdHour * 60 + thresholdMinute);
+                  const h = Math.floor(lateMinutes / 60);
+                  const m = lateMinutes % 60;
+                  lateText = h > 0 ? `${h} jam ${m} menit` : `${m} menit`;
+                }
+
+                const msg = isLate 
+                  ? `⚠️ ${emp.name} (Terlambat ${lateText})` 
+                  : `✅ ${emp.name} (Tepat Waktu)`;
+                
+                console.log('Triggering notification:', msg);
+                setAttendanceMessage(msg);
+                
+                const voiceMsg = isLate 
+                  ? `Selamat datang ${emp.name}. Anda terlambat ${lateText}, ayo lebih semangat lagi!` 
+                  : `Selamat datang ${emp.name}. Terima kasih sudah datang tepat waktu!`;
+                
+                try {
+                  const utterance = new SpeechSynthesisUtterance(voiceMsg);
+                  utterance.lang = 'id-ID';
+                  utterance.rate = 0.9; // Slightly slower for clarity
+                  window.speechSynthesis.speak(utterance);
+                } catch (speechErr) {
+                  console.error('Voice synthesis error:', speechErr);
+                }
+                
+                setTimeout(() => setAttendanceMessage(''), 10000);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+      }
+    };
+
+    const interval = setInterval(pollAttendance, 3000);
+    return () => clearInterval(interval);
+  }, [lastProcessedId, fetchData]);
 
   useEffect(() => {
     fetchData();
@@ -230,12 +359,31 @@ export const DataProvider = ({ children }) => {
     }
   };
 
-  const updateOrgStructure = async (url) => {
+  const updateOrgStructure = async (data) => {
     try {
-      await supabase.from('kpi_stats').upsert({ key: 'ORG_STRUCTURE', value_text: url });
-      setOrgStructure(url);
+      const valueText = typeof data === 'string' ? data : JSON.stringify(data);
+      
+      // First, try to update existing record
+      const { data: updateData, error: updateError } = await supabase
+        .from('kpi_stats')
+        .update({ label: valueText, value: 0 }) // Store in label (text/json support)
+        .eq('key', 'ORG_STRUCTURE')
+        .select();
+
+      if (updateError) throw updateError;
+
+      // If no record was updated, insert a new one
+      if (!updateData || updateData.length === 0) {
+        const { error: insertError } = await supabase
+          .from('kpi_stats')
+          .insert({ key: 'ORG_STRUCTURE', label: valueText, value: 0 });
+        if (insertError) throw insertError;
+      }
+
+      setOrgStructure(data);
       return { success: true };
     } catch (error) {
+      console.error('Error updating org structure:', error);
       return { success: false, error };
     }
   };
@@ -249,6 +397,8 @@ export const DataProvider = ({ children }) => {
       mails, setMails,
       photos, setPhotos,
       orgStructure, setOrgStructure,
+      attendanceMessage, setAttendanceMessage,
+      attendanceHistory,
       loading,
       fetchData,
       updateAttendance,

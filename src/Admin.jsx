@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
   Users, 
@@ -15,7 +15,8 @@ import {
   Award,
   ShieldCheck,
   RefreshCcw,
-  Network
+  Network,
+  Clock
 } from 'lucide-react';
 import { 
   BarChart as RechartsBarChart, 
@@ -49,11 +50,21 @@ const AdminPanel = () => {
     addPhoto,
     deletePhoto,
     orgStructure,
-    updateOrgStructure
+    updateOrgStructure,
+    attendanceHistory
   } = useData();
 
   const [activeTab, setActiveTab] = useState('overview');
   const [saving, setSaving] = useState(false);
+  
+  // Local state to hold temporary edits for custom metrics to avoid keystroke delay and numeric bugs
+  const [localCustomMetrics, setLocalCustomMetrics] = useState({});
+
+  useEffect(() => {
+    if (customMetrics && Object.keys(customMetrics).length > 0) {
+      setLocalCustomMetrics(JSON.parse(JSON.stringify(customMetrics)));
+    }
+  }, [customMetrics]);
   
   // New Item States
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -61,6 +72,7 @@ const AdminPanel = () => {
   const [newActivity, setNewActivity] = useState({ title: '', date: new Date().toISOString().split('T')[0], time: '08:00' });
   const [newMail, setNewMail] = useState({ subject: '', from: '', date_received: new Date().toISOString().split('T')[0] });
   const [newPhoto, setNewPhoto] = useState({ url: '', title: '' });
+  const [newOrgNode, setNewOrgNode] = useState({ name: '', role: '', parentId: '' });
   const [tempOrgUrl, setTempOrgUrl] = useState(orgStructure || '');
 
   const handleAddEmployee = async () => {
@@ -141,49 +153,125 @@ const AdminPanel = () => {
 
   const handleUpdateOrg = async () => {
     setSaving(true);
-    await updateOrgStructure(tempOrgUrl);
+    // If it's the old string URL, we keep it as is, but we want the new JSON structure
+    await updateOrgStructure(orgStructure); 
     setSaving(false);
     alert('Struktur Organisasi berhasil diperbarui!');
   };
+
+  const handleAddOrgNode = async () => {
+    if (!newOrgNode.name || !newOrgNode.role) return;
+    const newNode = { ...newOrgNode, id: Date.now().toString() };
+    const updatedStructure = Array.isArray(orgStructure) ? [...orgStructure, newNode] : [newNode];
+    const res = await updateOrgStructure(updatedStructure);
+    if (!res.success) {
+      alert('Gagal menambah unit: ' + (res.error?.message || 'Unknown error'));
+    }
+    setNewOrgNode({ name: '', role: '', parentId: '' });
+  };
+
+  const deleteOrgNode = async (id) => {
+    if (!Array.isArray(orgStructure)) return;
+    const updatedStructure = orgStructure.filter(n => n.id !== id);
+    const res = await updateOrgStructure(updatedStructure);
+    if (!res.success) {
+      alert('Gagal menghapus unit: ' + (res.error?.message || 'Unknown error'));
+    }
+  };
   const handleSaveMetrics = async () => {
     setSaving(true);
-    await updateMetrics(metrics);
+    // 1. Update general metrics
+    const resMetrics = await updateMetrics(metrics);
+    
+    // 2. Update custom metrics (SAKIP, RB, Budker, etc.) from local state
+    let allSuccess = true;
+    let errorMessage = '';
+    
+    for (const [category, data] of Object.entries(localCustomMetrics)) {
+      // Convert scores from string (or whatever format) back to clean float numbers for database
+      const parsedData = data.map(d => ({
+        ...d,
+        score: typeof d.score === 'string'
+          ? (parseFloat(d.score.replace(',', '.')) || 0)
+          : (parseFloat(d.score) || 0),
+        year: d.year ? d.year.toString() : new Date().getFullYear().toString()
+      }));
+      
+      const res = await updateChartData(category, parsedData);
+      if (!res.success) {
+        allSuccess = false;
+        errorMessage = res.error?.message || 'Gagal menyimpan metrik ' + category;
+      }
+    }
+    
     setSaving(false);
-    alert('Data berhasil disimpan!');
+    if (resMetrics.success && allSuccess) {
+      alert('Semua data berhasil disimpan!');
+    } else {
+      alert('Gagal menyimpan data: ' + (errorMessage || 'Unknown error'));
+    }
   };
 
   const handleAddCategory = async () => {
     if (!newCategoryName) return;
-    const initialData = [{ year: new Date().getFullYear().toString(), score: 0 }];
+    const initialData = [{ year: new Date().getFullYear().toString(), score: '' }];
+    setLocalCustomMetrics(prev => ({
+      ...prev,
+      [newCategoryName]: initialData
+    }));
     await updateChartData(newCategoryName, initialData);
     setNewCategoryName('');
   };
 
-  const handleUpdateCategoryData = (category, index, field, value) => {
-    const categoryData = customMetrics[category] || [];
-    let newData = [...categoryData];
-    
-    if (index === -1) {
-      // If no data exists, create the first entry
-      newData = [{ 
-        year: new Date().getFullYear().toString(), 
-        score: field === 'score' ? value : 0,
-        [field]: value 
-      }];
-    } else {
-      newData[index] = { ...newData[index], [field]: value };
-    }
-    
-    updateChartData(category, newData);
+  const handleUpdateLocalCategoryData = (category, index, field, value) => {
+    setLocalCustomMetrics(prev => {
+      const categoryData = prev[category] || [];
+      let newData = [...categoryData];
+      
+      if (index === -1) {
+        newData = [{ 
+          year: new Date().getFullYear().toString(), 
+          score: field === 'score' ? value : '',
+          [field]: value 
+        }];
+      } else {
+        newData[index] = { ...newData[index], [field]: value };
+      }
+      
+      return {
+        ...prev,
+        [category]: newData
+      };
+    });
   };
 
   const handleAddYear = (category) => {
-    const categoryData = customMetrics[category] || [];
+    const categoryData = localCustomMetrics[category] || [];
     const lastYear = categoryData.length > 0 
       ? parseInt(categoryData[categoryData.length - 1].year) 
       : new Date().getFullYear();
-    const newData = [...categoryData, { year: (lastYear + 1).toString(), score: 0 }];
-    updateChartData(category, newData);
+    
+    setLocalCustomMetrics(prev => ({
+      ...prev,
+      [category]: [...categoryData, { year: (lastYear + 1).toString(), score: '' }]
+    }));
+  };
+
+  const handleDeleteCategory = async (category) => {
+    if (!window.confirm(`Apakah Anda yakin ingin menghapus kategori ${category}?`)) return;
+    setSaving(true);
+    const res = await deleteCategory(category);
+    setSaving(false);
+    if (res.success) {
+      setLocalCustomMetrics(prev => {
+        const next = { ...prev };
+        delete next[category];
+        return next;
+      });
+      alert(`Kategori ${category} berhasil dihapus!`);
+    } else {
+      alert('Gagal menghapus kategori: ' + (res.error?.message || 'Unknown error'));
+    }
   };
 
   const generateSecret = (officialId) => {
@@ -233,6 +321,7 @@ const AdminPanel = () => {
         <SidebarItem id="surat" icon={Mail} label="Surat Masuk" />
         <SidebarItem id="dokumentasi" icon={Camera} label="Dokumentasi" />
         <SidebarItem id="struktur" icon={Network} label="Struktur Organisasi" />
+        <SidebarItem id="presensi" icon={Clock} label="Riwayat Presensi" />
 
         <div style={{ marginTop: 'auto', borderTop: '1px solid var(--glass-border)', paddingTop: '1.5rem' }}>
           <button 
@@ -304,84 +393,66 @@ const AdminPanel = () => {
 
         {activeTab === 'kinerja' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '4rem' }}>
-            {/* Quick Edit Metrics */}
-            <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-              <div className="glass-card" style={{ padding: '1.5rem' }}>
-                <label style={{ display: 'block', marginBottom: '0.75rem', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>NILAI IPP</label>
-                <input type="number" step="0.01" value={metrics.ipp} onChange={(e) => setMetrics({ ...metrics, ipp: parseFloat(e.target.value) || 0 })} style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.75rem', color: 'white', fontSize: '1.25rem', fontWeight: 700 }} />
-              </div>
-              <div className="glass-card" style={{ padding: '1.5rem' }}>
-                <label style={{ display: 'block', marginBottom: '0.75rem', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>NILAI IKM</label>
-                <input type="number" step="0.1" value={metrics.ikm} onChange={(e) => setMetrics({ ...metrics, ikm: parseFloat(e.target.value) || 0 })} style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.75rem', color: 'white', fontSize: '1.25rem', fontWeight: 700 }} />
-              </div>
-              {/* Also show SAKIP & RB if they exist in customMetrics for quick edit */}
-              {['SAKIP', 'RB'].map(cat => {
-                const data = customMetrics[cat] || [];
-                const latest = data.length > 0 ? data[data.length - 1] : { score: 0, year: new Date().getFullYear().toString() };
-                return (
-                  <div key={cat} className="glass-card" style={{ padding: '1.5rem' }}>
-                    <label style={{ display: 'block', marginBottom: '0.75rem', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>SKOR {cat} ({latest.year})</label>
-                    <input 
-                      type="number" 
-                      step="0.1"
-                      value={latest.score} 
-                      onChange={(e) => handleUpdateCategoryData(cat, data.length > 0 ? data.length - 1 : -1, 'score', parseFloat(e.target.value) || 0)} 
-                      style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.75rem', color: 'white', fontSize: '1.25rem', fontWeight: 700 }} 
-                    />
-                  </div>
-                );
-              })}
-            </section>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1.5rem' }}>
-              {/* Chart Section */}
-              <section className="glass-card">
-                <h3 className="section-title"><span></span> Survey Budaya Kerja</h3>
-                <div style={{ flex: 1, minHeight: '250px', width: '100%' }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RechartsBarChart data={customMetrics['Budker'] || []}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--glass-border)" vertical={false} />
-                      <XAxis dataKey="year" stroke="var(--text-muted)" fontSize={10} />
-                      <YAxis stroke="var(--text-muted)" fontSize={10} />
-                      <Tooltip 
-                        contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--glass-border)', borderRadius: '12px' }}
-                        cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                      />
-                      <Bar dataKey="score" name="Skor" fill="var(--primary)" radius={[4, 4, 0, 0]} barSize={40} />
-                    </RechartsBarChart>
-                  </ResponsiveContainer>
-                </div>
-              </section>
-
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
               {/* Add Category Section */}
               <section className="glass-card">
                 <h3 className="section-title"><span></span> Tambah Kategori Baru</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>Tambahkan metrik kinerja tahunan lainnya.</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <input placeholder="Nama Metrik (SAKIP, RB, dll)" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} style={{ background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }} />
-                  <button onClick={handleAddCategory} className="attendance-btn" style={{ width: '100%' }}>Tambah Kategori</button>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>Tambahkan metrik kinerja tahunan lainnya (Contoh: SAKIP, RB, IPP, IKM).</p>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                  <input placeholder="Nama Metrik" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} style={{ flex: 1, background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                  <button onClick={handleAddCategory} className="attendance-btn">Tambah Kategori</button>
                 </div>
               </section>
             </div>
 
             {/* Detailed Category Management */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
-              {Object.keys(customMetrics).map(category => (
-                <section key={category} className="glass-card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              {Object.keys(localCustomMetrics || {}).sort().map(category => (
+                <section key={category} className="glass-card" style={{ padding: '1.25rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
                     <h3 className="section-title" style={{ margin: 0 }}><span></span> Data {category}</h3>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button onClick={() => handleAddYear(category)} className="refresh-btn" style={{ fontSize: '0.75rem', padding: '0.5rem' }}>+ Tahun</button>
-                      <button onClick={() => deleteCategory(category)} className="refresh-btn" style={{ color: 'var(--accent)' }}><Trash2 size={16} /></button>
+                      <button onClick={() => handleAddYear(category)} className="refresh-btn" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', borderRadius: '0.5rem' }}>+ Tahun</button>
+                      <button onClick={() => handleDeleteCategory(category)} className="refresh-btn" style={{ color: 'var(--accent)', padding: '0.4rem' }}><Trash2 size={16} /></button>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {customMetrics[category].map((data, index) => (
-                      <div key={index} style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                        <input type="text" value={data.year} onChange={(e) => handleUpdateCategoryData(category, index, 'year', e.target.value)} style={{ width: '80px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', padding: '0.6rem', borderRadius: '0.5rem', color: 'white', textAlign: 'center' }} />
-                        <input type="number" step="0.1" value={data.score} onChange={(e) => handleUpdateCategoryData(category, index, 'score', parseFloat(e.target.value) || 0)} style={{ flex: 1, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', padding: '0.6rem', borderRadius: '0.5rem', color: 'white' }} />
-                      </div>
-                    ))}
+                  
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                      <thead>
+                        <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-muted)' }}>
+                          <th style={{ padding: '0.5rem', fontWeight: 600 }}>Tahun</th>
+                          <th style={{ padding: '0.5rem', fontWeight: 600 }}>Skor / Nilai</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(localCustomMetrics[category] || []).map((data, index) => (
+                          <tr key={index} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                            <td style={{ padding: '0.5rem' }}>
+                              <input 
+                                type="text" 
+                                value={data.year} 
+                                onChange={(e) => handleUpdateLocalCategoryData(category, index, 'year', e.target.value)} 
+                                style={{ width: '80px', background: 'transparent', border: '1px solid transparent', padding: '0.4rem', borderRadius: '0.4rem', color: 'white', transition: 'border-color 0.2s' }}
+                                onFocus={(e) => e.target.style.borderColor = 'var(--glass-border)'}
+                                onBlur={(e) => e.target.style.borderColor = 'transparent'}
+                              />
+                            </td>
+                            <td style={{ padding: '0.5rem' }}>
+                              <input 
+                                type="text" 
+                                inputMode="decimal"
+                                value={data.score} 
+                                onChange={(e) => handleUpdateLocalCategoryData(category, index, 'score', e.target.value)} 
+                                style={{ width: '100%', background: 'transparent', border: '1px solid transparent', padding: '0.4rem', borderRadius: '0.4rem', color: 'white', transition: 'border-color 0.2s' }}
+                                onFocus={(e) => e.target.style.borderColor = 'var(--glass-border)'}
+                                onBlur={(e) => e.target.style.borderColor = 'transparent'}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </section>
               ))}
@@ -545,34 +616,121 @@ const AdminPanel = () => {
         {activeTab === 'struktur' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
             <section className="glass-card">
-              <h3 className="section-title"><span></span> Update Gambar Struktur Organisasi</h3>
-              <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', fontSize: '0.875rem' }}>Masukkan URL gambar struktur organisasi yang akan ditampilkan di dashboard publik.</p>
-              <div style={{ display: 'flex', gap: '1rem', flexDirection: 'column' }}>
-                <input 
-                  placeholder="https://example.com/struktur.jpg" 
-                  value={tempOrgUrl} 
-                  onChange={(e) => setTempOrgUrl(e.target.value)} 
-                  style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }} 
-                />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <h3 className="section-title" style={{ margin: 0 }}><span></span> Kelola Struktur Organisasi</h3>
                 <button 
-                  onClick={handleUpdateOrg} 
-                  disabled={saving}
-                  className="attendance-btn" 
-                  style={{ alignSelf: 'flex-start', padding: '0.75rem 2rem' }}
+                  onClick={() => updateOrgStructure(Array.isArray(orgStructure) ? '' : [])} 
+                  className="refresh-btn" 
+                  style={{ fontSize: '0.75rem' }}
                 >
-                  <Save size={20} /> {saving ? 'Menyimpan...' : 'Perbarui Struktur'}
+                  {Array.isArray(orgStructure) ? 'Ganti ke Mode Gambar URL' : 'Ganti ke Mode Dinamis (Input Field)'}
                 </button>
               </div>
-            </section>
-            
-            {orgStructure && (
-              <section className="glass-card">
-                <h3 className="section-title"><span></span> Preview Saat Ini</h3>
-                <div style={{ borderRadius: '1rem', overflow: 'hidden', border: '1px solid var(--glass-border)' }}>
-                  <img src={orgStructure} alt="Struktur Organisasi" style={{ width: '100%', height: 'auto', display: 'block' }} />
+
+              {!Array.isArray(orgStructure) ? (
+                <div style={{ display: 'flex', gap: '1rem', flexDirection: 'column' }}>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Masukkan URL gambar struktur organisasi.</p>
+                  <input 
+                    placeholder="https://example.com/struktur.jpg" 
+                    value={typeof orgStructure === 'string' ? orgStructure : ''} 
+                    onChange={(e) => setOrgStructure(e.target.value)} 
+                    style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white' }} 
+                  />
+                  <button onClick={() => updateOrgStructure(orgStructure)} disabled={saving} className="attendance-btn" style={{ alignSelf: 'flex-start' }}>
+                    {saving ? '...' : 'Simpan URL Gambar'}
+                  </button>
                 </div>
-              </section>
-            )}
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '1rem', alignItems: 'end' }}>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>Nama Unit / Jabatan</label>
+                      <input placeholder="Contoh: Kepala Biro" value={newOrgNode.name} onChange={(e) => setNewOrgNode({ ...newOrgNode, name: e.target.value })} style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>Deskripsi / Role</label>
+                      <input placeholder="Contoh: Pimpinan" value={newOrgNode.role} onChange={(e) => setNewOrgNode({ ...newOrgNode, role: e.target.value })} style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>Atasan (Parent)</label>
+                      <select 
+                        value={newOrgNode.parentId} 
+                        onChange={(e) => setNewOrgNode({ ...newOrgNode, parentId: e.target.value })} 
+                        style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '0.75rem', borderRadius: '0.5rem', color: 'white' }}
+                      >
+                        <option value="">-- No Parent (Root) --</option>
+                        {orgStructure.map(n => (
+                          <option key={n.id} value={n.id}>{n.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button onClick={handleAddOrgNode} className="attendance-btn">Tambah</button>
+                  </div>
+                  
+                  <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid var(--glass-border)', borderRadius: '0.75rem' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-accent)' }}>
+                        <tr style={{ textAlign: 'left', color: 'var(--text-muted)' }}>
+                          <th style={{ padding: '0.75rem' }}>Unit / Jabatan</th>
+                          <th style={{ padding: '0.75rem' }}>Atasan</th>
+                          <th style={{ padding: '0.75rem' }}>Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {orgStructure.map(n => (
+                          <tr key={n.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <td style={{ padding: '0.75rem' }}><strong>{n.name}</strong><br/><small>{n.role}</small></td>
+                            <td style={{ padding: '0.75rem' }}>{orgStructure.find(p => p.id === n.parentId)?.name || '-'}</td>
+                            <td style={{ padding: '0.75rem' }}><button onClick={() => deleteOrgNode(n.id)} style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer' }}><Trash2 size={16} /></button></td>
+                          </tr>
+                        ))}
+                        {orgStructure.length === 0 && <tr><td colSpan="3" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Belum ada data unit.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'presensi' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <section className="glass-card">
+              <h3 className="section-title"><span></span> Riwayat Presensi Pegawai</h3>
+              <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', fontSize: '0.875rem' }}>Daftar 50 rekaman absensi terakhir dari semua pegawai.</p>
+              
+              <div style={{ overflowX: 'auto', background: 'var(--bg-accent)', borderRadius: '1rem', border: '1px solid var(--glass-border)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                  <thead style={{ background: 'rgba(0,0,0,0.2)' }}>
+                    <tr style={{ textAlign: 'left', color: 'var(--text-muted)' }}>
+                      <th style={{ padding: '1rem' }}>Waktu Check-In</th>
+                      <th style={{ padding: '1rem' }}>Nama Pegawai</th>
+                      <th style={{ padding: '1rem' }}>Tipe</th>
+                      <th style={{ padding: '1rem' }}>Lokasi / IP</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendanceHistory && attendanceHistory.length > 0 ? attendanceHistory.map((record) => (
+                      <tr key={record.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '1rem', color: 'white' }}>{record.timestamp ? new Date(record.timestamp).toLocaleString('id-ID') : '-'}</td>
+                        <td style={{ padding: '1rem', fontWeight: 600 }}>{record.employees?.name || 'Unknown'}</td>
+                        <td style={{ padding: '1rem' }}>
+                          <span style={{ padding: '0.25rem 0.75rem', borderRadius: '1rem', fontSize: '0.75rem', background: record.type === 'Check-In' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(59, 130, 246, 0.1)', color: record.type === 'Check-In' ? 'var(--secondary)' : '#60a5fa' }}>
+                            {record.type}
+                          </span>
+                        </td>
+                        <td style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{record.location || '-'}</td>
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan="4" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Belum ada data riwayat absensi.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           </div>
         )}
 

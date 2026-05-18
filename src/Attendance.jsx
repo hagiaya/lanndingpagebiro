@@ -140,20 +140,47 @@ const Attendance = ({ onBack }) => {
               exit={{ opacity: 0, x: -20 }}
               className="step-content"
             >
-              <h3>Ambil Foto Selfie</h3>
-              <p>Pastikan wajah terlihat jelas untuk verifikasi.</p>
-              <div style={{ position: 'relative', width: '100%', borderRadius: '1rem', overflow: 'hidden', background: '#000', marginBottom: '1.5rem' }}>
-                <video id="webcam" autoPlay playsInline style={{ width: '100%', display: 'block' }}></video>
-                {!isCameraReady && <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>Memulai Kamera...</div>}
+              <div style={{ width: '64px', height: '64px', background: 'var(--primary-glow)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem', color: 'var(--primary)' }}>
+                <LogIn size={32} />
               </div>
+              <h3>Konfirmasi Kehadiran</h3>
+              <p style={{ color: '#64748b', marginBottom: '2rem' }}>
+                Halo <strong>{selectedEmployee?.name}</strong>, silakan klik tombol di bawah untuk mencatat kehadiran Anda hari ini.
+              </p>
+              
+              <div className="status-selection" style={{ width: '100%', marginBottom: '2rem' }}>
+                <div style={{ padding: '1rem', background: '#f0f9ff', border: '2px solid #bae6fd', borderRadius: '1rem', display: 'flex', alignItems: 'center', gap: '1rem', color: '#0369a1' }}>
+                  <CheckCircle2 size={24} />
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontWeight: 700 }}>Check-In Masuk</div>
+                    <div style={{ fontSize: '0.8rem' }}>Jam: {new Date().toLocaleTimeString()}</div>
+                  </div>
+                </div>
+              </div>
+
               {error && <p className="error-text">{error}</p>}
               <button 
-                onClick={handleCapture}
-                disabled={!isCameraReady || loading}
+                onClick={async () => {
+                  setLoading(true);
+                  setError('');
+                  try {
+                    const res = await updateAttendance(selectedEmployee.id, 'In', 'Kantor Biro Organisasi', '');
+                    if (res.success) {
+                      setStep(3);
+                    } else {
+                      setError('Gagal mencatat absensi. Silakan coba lagi.');
+                    }
+                  } catch (err) {
+                    setError('Terjadi kesalahan.');
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
                 className="submit-btn"
-                style={{ background: 'var(--secondary)' }}
+                style={{ background: 'var(--primary)', height: '60px', fontSize: '1.1rem' }}
               >
-                {loading ? 'Mengirim...' : 'Ambil Foto & Absen'}
+                {loading ? 'Memproses...' : 'Kirim Kehadiran'}
               </button>
             </motion.div>
           )}
