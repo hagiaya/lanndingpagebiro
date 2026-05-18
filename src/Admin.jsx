@@ -224,33 +224,18 @@ const AdminPanel = () => {
     }
   };
 
-  const handleAddCategory = async () => {
+  const handleAddCategory = () => {
     if (!newCategoryName) return;
     
-    // Initialize score as 0 for database compatibility (avoiding numeric type mismatches)
-    const initialData = [{ year: new Date().getFullYear().toString(), score: 0 }];
+    // Initialize locally with year 2025 and empty score.
+    // The database write will only occur when the user clicks "Simpan Semua".
+    const initialData = [{ year: '2025', score: '' }];
     
-    // Optimistically add to local state
     setLocalCustomMetrics(prev => ({
       ...prev,
       [newCategoryName]: initialData
     }));
-    
-    setSaving(true);
-    const res = await updateChartData(newCategoryName, initialData);
-    setSaving(false);
-    
-    if (res.success) {
-      setNewCategoryName('');
-    } else {
-      alert('Gagal menambahkan kategori baru ke database: ' + (res.error?.message || 'Unknown error'));
-      // Rollback local state
-      setLocalCustomMetrics(prev => {
-        const next = { ...prev };
-        delete next[newCategoryName];
-        return next;
-      });
-    }
+    setNewCategoryName('');
   };
 
   const handleDeleteYear = async (category, index) => {
