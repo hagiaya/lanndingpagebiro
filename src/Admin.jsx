@@ -192,6 +192,7 @@ const AdminPanel = () => {
     // 2. Update custom metrics (SAKIP, RB, Budker, etc.) from local state
     let allSuccess = true;
     let errorMessage = '';
+    const updatedLocalMetrics = {};
     
     for (const [category, data] of Object.entries(localCustomMetrics)) {
       // Convert scores from string (or whatever format) back to clean float numbers for database
@@ -203,6 +204,8 @@ const AdminPanel = () => {
         year: d.year ? d.year.toString() : new Date().getFullYear().toString()
       }));
       
+      updatedLocalMetrics[category] = parsedData;
+      
       const res = await updateChartData(category, parsedData);
       if (!res.success) {
         allSuccess = false;
@@ -213,9 +216,8 @@ const AdminPanel = () => {
     setSaving(false);
     if (resMetrics.success && allSuccess) {
       alert('Semua data berhasil disimpan!');
-      if (customMetrics) {
-        setLocalCustomMetrics(JSON.parse(JSON.stringify(customMetrics)));
-      }
+      // Synchronize local state with the normalized parsed data we just successfully saved
+      setLocalCustomMetrics(updatedLocalMetrics);
     } else {
       alert('Gagal menyimpan data: ' + (errorMessage || 'Unknown error'));
     }
