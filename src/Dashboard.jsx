@@ -112,6 +112,14 @@ const Dashboard = ({ onOpenAttendance }) => {
   const [guestData, setGuestData] = useState({ name: '', origin: '', purpose: '', employeeId: '' });
   const [aiInput, setAiInput] = useState('');
 
+  // Auto-refresh website every 2 minutes
+  useEffect(() => {
+    const refreshInterval = setInterval(() => {
+      window.location.reload();
+    }, 2 * 60 * 1000);
+    return () => clearInterval(refreshInterval);
+  }, []);
+
   const handleGuestSubmit = (e) => {
     e.preventDefault();
     if (!guestData.name || !guestData.origin || !guestData.employeeId) return;

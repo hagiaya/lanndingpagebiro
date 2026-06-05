@@ -58,6 +58,24 @@ const AdminPanel = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [saving, setSaving] = useState(false);
   
+  // Login State
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    return localStorage.getItem('adminLoggedIn') === 'true';
+  });
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (password === '4dm!n123') {
+      setIsLoggedIn(true);
+      localStorage.setItem('adminLoggedIn', 'true');
+      setLoginError('');
+    } else {
+      setLoginError('Password salah!');
+    }
+  };
+  
   // Local state to hold temporary edits for custom metrics to avoid keystroke delay and numeric bugs
   const [localCustomMetrics, setLocalCustomMetrics] = useState({});
 
@@ -352,6 +370,42 @@ const AdminPanel = () => {
     </div>
   );
 
+  if (!isLoggedIn) {
+    return (
+      <div style={{ display: 'flex', minHeight: '100vh', background: '#020617', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+        <div className="glass-card" style={{ width: '100%', maxWidth: '400px', padding: '2rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '2rem' }}>
+            <div style={{ width: '60px', height: '60px', background: 'var(--primary)', borderRadius: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+              <ShieldCheck color="white" size={32} />
+            </div>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Admin Login</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Masukkan password untuk mengakses panel</p>
+          </div>
+          
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div>
+              <input 
+                type="password" 
+                placeholder="Password Admin" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ width: '100%', background: 'var(--bg-accent)', border: '1px solid var(--glass-border)', padding: '1rem', borderRadius: '0.75rem', color: 'white', fontSize: '1rem' }}
+                autoFocus
+              />
+              {loginError && <p style={{ color: 'var(--accent)', fontSize: '0.875rem', marginTop: '0.5rem' }}>{loginError}</p>}
+            </div>
+            <button type="submit" className="attendance-btn" style={{ width: '100%', justifyContent: 'center', padding: '1rem' }}>
+              Login
+            </button>
+            <button type="button" onClick={() => window.location.href = '/'} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', marginTop: '0.5rem', fontSize: '0.875rem' }}>
+              Kembali ke Beranda
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#020617' }}>
       {/* Admin Sidebar */}
@@ -372,9 +426,30 @@ const AdminPanel = () => {
         <SidebarItem id="struktur" icon={Network} label="Struktur Organisasi" />
         <SidebarItem id="presensi" icon={Clock} label="Riwayat Presensi" />
 
-        <div style={{ marginTop: 'auto', borderTop: '1px solid var(--glass-border)', paddingTop: '1.5rem' }}>
+        <div style={{ marginTop: 'auto', borderTop: '1px solid var(--glass-border)', paddingTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <button 
             onClick={() => window.location.href = '/'}
+            style={{ 
+              width: '100%', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '1rem', 
+              padding: '1rem', 
+              borderRadius: '0.75rem', 
+              background: 'rgba(255, 255, 255, 0.05)', 
+              color: 'white', 
+              border: 'none', 
+              cursor: 'pointer',
+              fontWeight: 600 
+            }}
+          >
+            <LayoutDashboard size={20} /> Lihat Dashboard
+          </button>
+          <button 
+            onClick={() => {
+              localStorage.removeItem('adminLoggedIn');
+              window.location.reload();
+            }}
             style={{ 
               width: '100%', 
               display: 'flex', 
@@ -389,7 +464,7 @@ const AdminPanel = () => {
               fontWeight: 600 
             }}
           >
-            <LogOut size={20} /> Lihat Dashboard
+            <LogOut size={20} /> Keluar (Logout)
           </button>
         </div>
       </div>
