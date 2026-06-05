@@ -151,13 +151,13 @@ const Dashboard = ({ onOpenAttendance }) => {
         // Immediate local voice feedback
         const hour = new Date().getHours();
         const minute = new Date().getMinutes();
-        const isLate = hour > 7 || (hour === 7 && minute > 30);
+        const isLate = hour >= 8 && (hour * 60 + minute > 8 * 60);
         let lateText = '';
         if (isLate) {
-          const totalLate = (hour * 60 + minute) - (7 * 60 + 30);
+          const totalLate = (hour * 60 + minute) - (8 * 60);
           const h = Math.floor(totalLate / 60);
           const m = totalLate % 60;
-          lateText = h > 0 ? `${h} jam ${m} menit` : `${m} menit`;
+          lateText = h > 0 ? (m > 0 ? `${h} jam ${m} menit` : `${h} jam`) : `${m} menit`;
         }
         
         const voiceMsg = isLate 
@@ -359,12 +359,12 @@ const Dashboard = ({ onOpenAttendance }) => {
                       const checkInDate = new Date(person.last_seen);
                       const hour = checkInDate.getHours();
                       const minute = checkInDate.getMinutes();
-                      const lateMinutes = (hour * 60 + minute) - (7 * 60 + 30);
+                      const lateMinutes = (hour * 60 + minute) - (8 * 60);
                       
                       if (lateMinutes > 0) {
                         const h = Math.floor(lateMinutes / 60);
                         const m = lateMinutes % 60;
-                        lateText = h > 0 ? `${h} jam ${m} menit` : `${m} menit`;
+                        lateText = h > 0 ? (m > 0 ? `${h} jam ${m} menit` : `${h} jam`) : `${m} menit`;
                       } else {
                         lateText = 'Tepat Waktu';
                       }

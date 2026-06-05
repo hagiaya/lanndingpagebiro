@@ -171,13 +171,13 @@ export const DataProvider = ({ children }) => {
               
               const { data: emp } = await supabase.from('employees').select('name').eq('id', latest.employee_id).single();
               if (emp) {
-                const checkInDate = new Date(latest.created_at);
+                const checkInDate = new Date(latest.timestamp);
                 const hour = checkInDate.getHours();
                 const minute = checkInDate.getMinutes();
                 
-                // Threshold 07:30
-                const thresholdHour = 7;
-                const thresholdMinute = 30;
+                // Threshold 08:00
+                const thresholdHour = 8;
+                const thresholdMinute = 0;
                 const isLate = hour > thresholdHour || (hour === thresholdHour && minute > thresholdMinute);
                 
                 let lateMinutes = 0;
@@ -186,7 +186,7 @@ export const DataProvider = ({ children }) => {
                   lateMinutes = (hour * 60 + minute) - (thresholdHour * 60 + thresholdMinute);
                   const h = Math.floor(lateMinutes / 60);
                   const m = lateMinutes % 60;
-                  lateText = h > 0 ? `${h} jam ${m} menit` : `${m} menit`;
+                  lateText = h > 0 ? (m > 0 ? `${h} jam ${m} menit` : `${h} jam`) : `${m} menit`;
                 }
 
                 const msg = isLate 
@@ -238,7 +238,7 @@ export const DataProvider = ({ children }) => {
         location,
         photo_url: photoUrl // Storing the base64 or URL
       });
-      setOfficials(prev => prev.map(emp => emp.id === employeeId ? { ...emp, status, last_location: location } : emp));
+      setOfficials(prev => prev.map(emp => emp.id === employeeId ? { ...emp, status, last_location: location, last_seen: new Date().toISOString() } : emp));
       return { success: true };
     } catch (error) {
       return { success: false, error };
