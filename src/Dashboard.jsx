@@ -152,13 +152,16 @@ const Dashboard = ({ onOpenAttendance }) => {
         const hour = new Date().getHours();
         const minute = new Date().getMinutes();
         const isLate = hour > 7 || (hour === 7 && minute > 30);
-        let lateMinutes = 0;
+        let lateText = '';
         if (isLate) {
-          lateMinutes = (hour * 60 + minute) - (7 * 60 + 30);
+          const totalLate = (hour * 60 + minute) - (7 * 60 + 30);
+          const h = Math.floor(totalLate / 60);
+          const m = totalLate % 60;
+          lateText = h > 0 ? `${h} jam ${m} menit` : `${m} menit`;
         }
         
         const voiceMsg = isLate 
-          ? `Selamat datang ${emp.name}. Anda terlambat ${lateMinutes} menit, ayo lebih semangat lagi!` 
+          ? `Selamat datang ${emp.name}. Anda terlambat ${lateText}, ayo lebih semangat lagi!` 
           : `Selamat datang ${emp.name}. Terima kasih sudah datang tepat waktu!`;
         
         try {
